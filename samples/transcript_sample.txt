@@ -1,0 +1,19 @@
+Speaker 1 (Maya): Alright, thanks everyone for joining. Let's start with the launch checklist. Where are we on the auth migration?
+
+Speaker 2 (Jordan): Mostly done. The new OAuth flow is in staging and I've tested it end-to-end. One blocker — the password reset emails are still going through the old provider. Need ops to flip the DNS record before we can fully cut over.
+
+Speaker 1 (Maya): Got it. Sam, can you ping the ops team and get that DNS change scheduled for Wednesday?
+
+Speaker 3 (Sam): Yeah, I'll file the ticket today. Should be straightforward, they usually turn those around in a day or two.
+
+Speaker 1 (Maya): Perfect. Next — the onboarding redesign. Priya?
+
+Speaker 4 (Priya): Designs are finalized. I shared the Figma yesterday. We're targeting a soft launch to 10% of new signups next Monday, then ramping to 50% the following week if metrics look good. Jordan, are we instrumented to track activation rate by cohort?
+
+Speaker 2 (Jordan): We have the events, but I'm not sure the dashboard splits by experiment bucket yet. Let me check after this call and follow up by EOD.
+
+Speaker 1 (Maya): Okay, two action items there — Sam on the DNS ticket, Jordan on confirming the dashboard. Anything else? Last thing — should we delay the launch if the dashboard isn't ready?
+
+Speaker 4 (Priya): I'd say yes. We need the metrics to make the ramp decision.
+
+Speaker 1 (Maya): Agreed. Let's plan to ship Monday only if the dashboard is confirmed by Friday EOD. Otherwise we slip a week. Anything else? No? Great, talk Wednesday.
