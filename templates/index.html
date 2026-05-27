@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Send a notetaker · RecallAI{% endblock %}
+
+{% block content %}
+<h1>Send a notetaker to a meeting</h1>
+<p class="muted">Paste a Google Meet, Zoom, or Teams URL. A bot will join, record, transcribe, and summarize the meeting. The result lands in the folder you pick below — find it on the <a href="/browse">Meetings</a> page once it finishes.</p>
+
+<form action="/dispatch" method="post" class="stack">
+  <label>
+    <span>Meeting URL</span>
+    <input type="url" name="meeting_url" placeholder="https://meet.google.com/abc-defg-hij" required />
+  </label>
+  <label>
+    <span>Subject</span>
+    <input type="text" name="subject" placeholder="Team sync" required />
+  </label>
+  <label>
+    <span>Folder</span>
+    <select name="parent_path">
+      <option value="" {% if not selected_parent %}selected{% endif %}>(Top level — no folder)</option>
+      {% for f in folders %}
+      <option value="{{ f }}" {% if f == selected_parent %}selected{% endif %}>{{ f.replace('/', ' / ') }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="muted small">Need a new folder? <a href="/browse">Open Meetings</a> and use <strong>+ New folder</strong>.</p>
+  <button type="submit">Send notetaker</button>
+</form>
+
+<aside class="note">
+  <strong>Heads up:</strong> the bot needs to be admitted to the meeting. Stay in the call until you see "RecallAI Notetaker" requesting to join, then click <em>Admit</em>.
+</aside>
+{% endblock %}

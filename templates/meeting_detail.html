@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} · RecallAI{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb">
+  <a href="/browse">Home</a>
+  {% for c in breadcrumbs %}
+    <span class="sep">/</span>
+    <a href="/browse?path={{ c.path }}">{{ c.name }}</a>
+  {% endfor %}
+  <span class="sep">/</span>
+  <span>{{ name }}</span>
+</nav>
+
+<h1>{{ name }}</h1>
+
+<div class="download-row">
+  <a class="btn" href="/zip?path={{ full_path }}">Download all (zip)</a>
+  {% if transcript %}
+    <a class="btn" href="/meetings/{{ full_path }}/download/transcript.txt">Download transcript.txt</a>
+  {% endif %}
+  {% if summary %}
+    <a class="btn" href="/meetings/{{ full_path }}/download/summary.txt">Download summary.txt</a>
+  {% endif %}
+</div>
+
+<details class="meeting-actions">
+  <summary class="btn">Rename</summary>
+  <form action="/entries/rename" method="post" class="inline-form">
+    <input type="hidden" name="path" value="{{ full_path }}" />
+    <input type="text" name="new_name" value="{{ name }}" required />
+    <button type="submit">Save</button>
+  </form>
+</details>
+
+<details class="meeting-actions">
+  <summary class="btn">Move</summary>
+  <form action="/entries/move" method="post" class="inline-form">
+    <input type="hidden" name="path" value="{{ full_path }}" />
+    <select name="dest_parent">
+      <option value="">(Top level)</option>
+      {% for d in all_folders %}
+      <option value="{{ d }}" {% if d == parent_rel %}selected{% endif %}>{{ d.replace('/', ' / ') }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Move</button>
+  </form>
+</details>
+
+<form action="/entries/delete" method="post" class="meeting-actions" onsubmit="return confirm('Delete this meeting? This will remove the transcript, summary, and any other files in the folder.');">
+  <input type="hidden" name="path" value="{{ full_path }}" />
+  <button type="submit" class="btn danger">Delete meeting</button>
+</form>
+
+{% if summary %}
+<section>
+  <h2>Summary</h2>
+  <pre class="summary">{{ summary }}</pre>
+</section>
+{% else %}
+<p class="muted">No summary yet.</p>
+{% endif %}
+
+{% if transcript %}
+<section>
+  <h2>Transcript</h2>
+  <pre class="transcript">{{ transcript }}</pre>
+</section>
+{% else %}
+<p class="muted">No transcript yet.</p>
+{% endif %}
+{% endblock %}

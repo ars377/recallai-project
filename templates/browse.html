@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}{% if path %}{{ path }}{% else %}Meetings{% endif %} · RecallAI{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb">
+  <a href="/browse">Home</a>
+  {% for c in breadcrumbs %}
+    <span class="sep">/</span>
+    <a href="/browse?path={{ c.path }}">{{ c.name }}</a>
+  {% endfor %}
+</nav>
+
+<div class="page-header">
+  <h1>{% if path %}{{ breadcrumbs[-1].name }}{% else %}Meetings{% endif %}</h1>
+  <div class="page-actions">
+    <a class="btn" href="/{% if path %}?parent={{ path }}{% endif %}">Send notetaker here</a>
+    {% if path %}
+    <a class="btn" href="/zip?path={{ path }}">Download folder (zip)</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if running %}
+<section>
+  <h2>In progress</h2>
+  <ul class="job-list">
+    {% for job in running %}
+    <li class="job">
+      <div class="job-title">{{ job.subject }}</div>
+      <div class="job-meta">
+        Status: <strong>{{ job.status }}</strong>
+        · Started {{ job.started_at }}
+        {% if job.parent_path %}· In folder <code>{{ job.parent_path }}</code>{% endif %}
+        {% if job.bot_id %}· Bot <code>{{ job.bot_id[:8] }}…</code>{% endif %}
+      </div>
+      <div class="job-meta muted small"><a href="{{ job.meeting_url }}" target="_blank" rel="noreferrer">Open meeting link</a></div>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted small">Refresh to see updates — the bot polls Recall every 20 seconds.</p>
+</section>
+{% endif %}
+
+{% if recent %}
+<section>
+  <h2>Recent jobs</h2>
+  <ul class="job-list">
+    {% for job in recent %}
+    <li class="job">
+      <div class="job-title">{{ job.subject }}
+        {% if job.status == "completed" %}<span class="pill ok">completed</span>
+        {% elif job.status == "failed" %}<span class="pill bad">failed</span>{% endif %}
+      </div>
+      {% if job.error %}<div class="job-meta error">{{ job.error }}</div>{% endif %}
+      {% if job.folder %}
+        <div class="job-meta"><a href="/meetings/{{ job.folder }}">Open meeting</a></div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section>
+  <div class="row-between">
+    <h2>Folders</h2>
+    <details class="new-folder">
+      <summary class="btn">+ New folder</summary>
+      <form action="/folders" method="post" class="inline-form">
+        <input type="hidden" name="parent_path" value="{{ path }}" />
+        <input type="text" name="name" placeholder="Folder name" required autofocus />
+        <button type="submit">Create</button>
+      </form>
+    </details>
+  </div>
+  {% if folders %}
+  <ul class="entry-list">
+    {% for f in folders %}
+    <li class="entry folder">
+      <a class="entry-main" href="/browse?path={{ f.path }}">
+        <span class="entry-label">Folder</span>
+        <span class="entry-name">{{ f.name }}</span>
+        <span class="entry-meta">{{ f.count }} meeting{% if f.count != 1 %}s{% endif %}</span>
+      </a>
+      <div class="entry-actions">
+        <details>
+          <summary class="action-link">Rename</summary>
+          <form action="/entries/rename" method="post" class="inline-form">
+            <input type="hidden" name="path" value="{{ f.path }}" />
+            <input type="text" name="new_name" value="{{ f.name }}" required />
+            <button type="submit">Save</button>
+          </form>
+        </details>
+        <details>
+          <summary class="action-link">Move</summary>
+          <form action="/entries/move" method="post" class="inline-form">
+            <input type="hidden" name="path" value="{{ f.path }}" />
+            <select name="dest_parent">
+              <option value="">(Top level)</option>
+              {% for d in all_folders %}
+                {% if d != f.path and not d.startswith(f.path ~ '/') %}
+                <option value="{{ d }}">{{ d.replace('/', ' / ') }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+            <button type="submit">Move</button>
+          </form>
+        </details>
+        <form action="/entries/delete" method="post" class="action-form" onsubmit="return confirm('Delete folder &quot;{{ f.name }}&quot; and everything in it?');">
+          <input type="hidden" name="path" value="{{ f.path }}" />
+          <button type="submit" class="action-link danger">Delete</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No folders here yet.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Meetings</h2>
+  {% if meetings %}
+  <ul class="entry-list">
+    {% for m in meetings %}
+    <li class="entry meeting">
+      <a class="entry-main" href="/meetings/{{ m.path }}">
+        <span class="entry-label">Meeting</span>
+        <span class="entry-name">{{ m.name }}</span>
+      </a>
+      <div class="entry-actions">
+        <details>
+          <summary class="action-link">Rename</summary>
+          <form action="/entries/rename" method="post" class="inline-form">
+            <input type="hidden" name="path" value="{{ m.path }}" />
+            <input type="text" name="new_name" value="{{ m.name }}" required />
+            <button type="submit">Save</button>
+          </form>
+        </details>
+        <details>
+          <summary class="action-link">Move</summary>
+          <form action="/entries/move" method="post" class="inline-form">
+            <input type="hidden" name="path" value="{{ m.path }}" />
+            <select name="dest_parent">
+              <option value="">(Top level)</option>
+              {% for d in all_folders %}
+              <option value="{{ d }}">{{ d.replace('/', ' / ') }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Move</button>
+          </form>
+        </details>
+        <form action="/entries/delete" method="post" class="action-form" onsubmit="return confirm('Delete meeting &quot;{{ m.name }}&quot;?');">
+          <input type="hidden" name="path" value="{{ m.path }}" />
+          <button type="submit" class="action-link danger">Delete</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No meetings here yet. <a href="/{% if path %}?parent={{ path }}{% endif %}">Send your first notetaker.</a></p>
+  {% endif %}
+</section>
+{% endblock %}

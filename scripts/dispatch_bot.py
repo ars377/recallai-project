@@ -68,7 +68,7 @@ def main():
     print("Summarizing with Claude...")
     summary = summarize(transcript_text)
     save_summary(folder, summary)
-    print(f"  saved summary.md\n")
+    print(f"  saved summary.txt\n")
 
     print("--- Summary ---\n")
     print(summary)

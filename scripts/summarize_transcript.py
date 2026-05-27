@@ -47,7 +47,7 @@ def main():
     print(f"Summarizing with {MODEL}...")
     summary = summarize(transcript)
     save_summary(folder, summary)
-    print(f"  saved summary.md\n")
+    print(f"  saved summary.txt\n")
 
     print("--- Summary ---\n")
     print(summary)
