@@ -68,6 +68,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 JOBS_FILE = MEETINGS_ROOT / "_jobs.json"
+SETTINGS_FILE = MEETINGS_ROOT / "_settings.json"
 WEBHOOK_LOG_FILE = MEETINGS_ROOT / "_webhooks.jsonl"
 ALLOWED_DOWNLOADS = {"transcript.txt", "summary.txt"}
 MEETING_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -192,6 +193,47 @@ def jobs_repath(old: str, new: str) -> None:
             job["folder"] = _replace_path_prefix(job.get("folder"), old, new)
             job["parent_path"] = _replace_path_prefix(job.get("parent_path"), old, new)
         _jobs_save_unlocked(jobs)
+
+
+def _settings_load_unlocked() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        settings = json.loads(SETTINGS_FILE.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def _settings_save_unlocked(settings: dict) -> None:
+    MEETINGS_ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_FILE.with_name(f"{SETTINGS_FILE.name}.tmp")
+    tmp.write_text(json.dumps(settings, indent=2))
+    tmp.replace(SETTINGS_FILE)
+
+
+def settings_load() -> dict:
+    with _JOBS_LOCK:
+        return _settings_load_unlocked()
+
+
+def settings_repath(old: str, new: str) -> None:
+    with _JOBS_LOCK:
+        settings = _settings_load_unlocked()
+        current = settings.get("default_parent_path")
+        if isinstance(current, str):
+            settings["default_parent_path"] = _replace_path_prefix(current, old, new) or ""
+            _settings_save_unlocked(settings)
+
+
+def settings_clear_default_under(rel_path: str) -> None:
+    rel_path = rel_path.strip("/")
+    with _JOBS_LOCK:
+        settings = _settings_load_unlocked()
+        current = settings.get("default_parent_path")
+        if isinstance(current, str) and _is_same_or_child(current, rel_path):
+            settings["default_parent_path"] = ""
+            _settings_save_unlocked(settings)
 
 
 def jobs_mark_deleted(rel_path: str) -> None:
@@ -358,9 +400,15 @@ def run_calendar_bot_pipeline(bot_id: str, calendar_event: dict, job_id: str) ->
     """Process a Calendar V2-scheduled bot after it finishes."""
     try:
         title = event_title(calendar_event)
-        folder = make_meeting_folder(title, _calendar_event_date(calendar_event), "")
+        job = jobs_find(id=job_id)
+        parent_path = (job.get("parent_path") or default_parent_path()).strip().strip("/")
+        try:
+            safe_parent_folder(parent_path)
+        except HTTPException:
+            parent_path = default_parent_path()
+        folder = make_meeting_folder(title, _calendar_event_date(calendar_event), parent_path)
         relative = folder.resolve().relative_to(MEETINGS_ROOT.resolve())
-        jobs_update(job_id, folder=str(relative), status="joining")
+        jobs_update(job_id, folder=str(relative), parent_path=parent_path, status="joining")
         final_status = _save_finished_bot_outputs(bot_id, folder, job_id)
         webhook_log(
             {
@@ -401,12 +449,13 @@ def register_calendar_bot_job(
     if existing:
         return existing.get("id")
 
+    parent_path = default_parent_path()
     job = {
         "id": str(uuid.uuid4()),
         "source": "calendar_v2",
         "subject": event_title(calendar_event),
         "meeting_url": bot_ref.get("meeting_url") or calendar_event.get("meeting_url"),
-        "parent_path": "",
+        "parent_path": parent_path,
         "started_at": dt.datetime.now().isoformat(timespec="seconds"),
         "status": "scheduled",
         "folder": None,
@@ -454,6 +503,26 @@ def safe_parent_folder(rel_path: str) -> Path:
     if is_meeting_folder(path):
         raise HTTPException(status_code=400, detail="Cannot create a meeting inside another meeting")
     return path
+
+
+def default_parent_path() -> str:
+    path = (settings_load().get("default_parent_path") or "").strip().strip("/")
+    if not path:
+        return ""
+    try:
+        safe_parent_folder(path)
+    except HTTPException:
+        return ""
+    return path
+
+
+def settings_set_default_parent(path: str) -> None:
+    path = path.strip().strip("/")
+    safe_parent_folder(path)
+    with _JOBS_LOCK:
+        settings = _settings_load_unlocked()
+        settings["default_parent_path"] = path
+        _settings_save_unlocked(settings)
 
 
 def breadcrumbs(rel_path: str) -> list[dict]:
@@ -550,6 +619,7 @@ def rename_route(path: str = Form(...), new_name: str = Form(...)):
         raise HTTPException(status_code=400, detail=str(e))
     new_rel = str(new_entry.resolve().relative_to(MEETINGS_ROOT.resolve()))
     jobs_repath(old_path, new_rel)
+    settings_repath(old_path, new_rel)
     return _back_to(_parent_of(new_rel))
 
 
@@ -562,6 +632,7 @@ def delete_route(path: str = Form(...)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     jobs_mark_deleted(old_path)
+    settings_clear_default_under(old_path)
     return _back_to(_parent_of(old_path))
 
 
@@ -576,6 +647,7 @@ def move_route(path: str = Form(...), dest_parent: str = Form("")):
         raise HTTPException(status_code=400, detail=str(e))
     new_rel = str(new_entry.resolve().relative_to(MEETINGS_ROOT.resolve()))
     jobs_repath(old_path, new_rel)
+    settings_repath(old_path, new_rel)
     return _back_to(dest_parent)
 
 
@@ -588,6 +660,12 @@ def create_folder_route(parent_path: str = Form(""), name: str = Form(...)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _back_to(parent_path)
+
+
+@app.post("/settings/default-folder")
+def set_default_folder_route(default_parent_path: str = Form("")):
+    settings_set_default_parent(default_parent_path)
+    return RedirectResponse(url="/browse", status_code=303)
 
 
 @app.get("/browse", response_class=HTMLResponse)
@@ -611,6 +689,9 @@ def browse(request: Request, path: str = ""):
     running = [j for j in jobs if j.get("status") not in {"completed", "failed"}]
     recent = [j for j in jobs if j.get("status") in {"completed", "failed"}][:5]
 
+    all_folders = list_all_folders()
+    default_folder = default_parent_path()
+
     return templates.TemplateResponse(
         "browse.html",
         {
@@ -619,7 +700,8 @@ def browse(request: Request, path: str = ""):
             "breadcrumbs": breadcrumbs(path),
             "folders": folder_entries,
             "meetings": meeting_entries,
-            "all_folders": list_all_folders(),
+            "all_folders": all_folders,
+            "default_parent_path": default_folder,
             "running": running if not path else [],
             "recent": recent if not path else [],
         },
@@ -757,6 +839,7 @@ async def recall_calendar_webhook(request: Request, background_tasks: Background
     for event in events:
         event_id = event.get("id")
         title = event_title(event)
+        existing_bot_ids = {ref.get("bot_id") for ref in scheduled_bot_refs(event) if ref.get("bot_id")}
         if event.get("is_deleted"):
             skipped.append({"id": event_id, "title": title, "reason": "deleted"})
             print(f"[recall-calendar] skip deleted {event_id} {title}")
@@ -771,6 +854,8 @@ async def recall_calendar_webhook(request: Request, background_tasks: Background
             continue
         job_ids = []
         for bot_ref in scheduled_bot_refs(scheduled_event):
+            if bot_ref.get("bot_id") in existing_bot_ids:
+                continue
             job_id = register_calendar_bot_job(background_tasks, scheduled_event, bot_ref)
             if job_id:
                 job_ids.append(job_id)

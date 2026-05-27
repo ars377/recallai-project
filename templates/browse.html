@@ -20,6 +20,24 @@
   </div>
 </div>
 
+{% if not path %}
+<section class="settings-panel">
+  <h2>Defaults</h2>
+  <form action="/settings/default-folder" method="post" class="inline-form settings-form">
+    <label>
+      <span>Default folder for calendar-created meetings</span>
+      <select name="default_parent_path">
+        <option value="" {% if not default_parent_path %}selected{% endif %}>(Top level)</option>
+        {% for d in all_folders %}
+        <option value="{{ d }}" {% if d == default_parent_path %}selected{% endif %}>{{ d.replace('/', ' / ') }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+{% endif %}
+
 {% if running %}
 <section>
   <h2>In progress</h2>

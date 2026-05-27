@@ -177,6 +177,8 @@ The bot should join at the event time. If the event is already happening, the ap
 
 After the bot finishes, the app downloads the transcript, summarizes it, and shows the meeting on the Meetings page.
 
+Calendar-created meeting folders use the default folder selected on the Meetings page. Create folders there first, then choose the default under Defaults.
+
 ## Calendar V2 Manual Scheduling Fallback
 
 Preview schedulable events:
