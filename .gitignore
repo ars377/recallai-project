@@ -3,6 +3,8 @@
 *.env
 credentials.json
 token.json
+.recall_calendar.json
+meetings/_webhooks.jsonl
 
 # Python
 __pycache__/

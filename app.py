@@ -40,6 +40,16 @@ from src.file_org import (
 )
 from src.google_auth import attendees_for_url
 from src.mailer import default_email_body, default_email_subject, send_meeting_email
+from src.recall_calendar import (
+    default_calendar_id,
+    event_attendees,
+    event_start_time,
+    event_title,
+    list_calendar_events,
+    parse_event_time,
+    schedule_bot_for_event,
+    scheduled_bot_refs,
+)
 from src.recall_client import (
     TERMINAL_FAILURE,
     create_bot,
@@ -58,6 +68,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 JOBS_FILE = MEETINGS_ROOT / "_jobs.json"
+WEBHOOK_LOG_FILE = MEETINGS_ROOT / "_webhooks.jsonl"
 ALLOWED_DOWNLOADS = {"transcript.txt", "summary.txt"}
 MEETING_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 _JOBS_LOCK = threading.RLock()
@@ -195,6 +206,24 @@ def jobs_mark_deleted(rel_path: str) -> None:
         _jobs_save_unlocked(jobs)
 
 
+def jobs_find(**criteria) -> dict:
+    for job in jobs_load():
+        if all(job.get(key) == value for key, value in criteria.items()):
+            return job
+    return {}
+
+
+def webhook_log(entry: dict) -> None:
+    MEETINGS_ROOT.mkdir(parents=True, exist_ok=True)
+    record = {
+        "received_at": dt.datetime.now().isoformat(timespec="seconds"),
+        **entry,
+    }
+    with _JOBS_LOCK:
+        with WEBHOOK_LOG_FILE.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+
+
 # ---------- background pipeline ----------
 
 def run_recall_pipeline(meeting_url: str, subject: str, parent_path: str, job_id: str) -> None:
@@ -266,6 +295,135 @@ def run_recall_pipeline(meeting_url: str, subject: str, parent_path: str, job_id
             error=f"{type(exc).__name__}: {exc}",
             finished_at=dt.datetime.now().isoformat(timespec="seconds"),
         )
+
+
+def _calendar_event_date(event: dict) -> dt.date:
+    parsed = parse_event_time(event_start_time(event))
+    if parsed:
+        return parsed.date()
+    return dt.date.today()
+
+
+def _save_finished_bot_outputs(bot_id: str, folder: Path, job_id: str) -> str:
+    bot = wait_for_completion(bot_id)
+    final_status = current_status(bot)
+    jobs_update(job_id, status=final_status)
+
+    if final_status in TERMINAL_FAILURE:
+        jobs_update(
+            job_id,
+            status="failed",
+            error=f"Bot ended with status {final_status}",
+            finished_at=dt.datetime.now().isoformat(timespec="seconds"),
+        )
+        return final_status
+
+    turns = download_transcript_json(bot)
+    text = format_transcript(turns)
+    save_transcript(folder, text)
+
+    summary = summarize(text)
+    save_summary(folder, summary)
+
+    jobs = jobs_load()
+    job = next((j for j in jobs if j.get("id") == job_id), {})
+    recipients = job.get("recipients") or []
+    if job.get("auto_email") and recipients:
+        try:
+            send_meeting_email(
+                recipients,
+                default_email_subject(folder.name),
+                default_email_body(folder.name, summary),
+                [folder / "transcript.txt", folder / "summary.txt"],
+            )
+            jobs_update(
+                job_id,
+                email_status="sent",
+                email_sent_at=dt.datetime.now().isoformat(timespec="seconds"),
+            )
+        except Exception as e:
+            jobs_update(job_id, email_status="failed", email_error=f"{type(e).__name__}: {e}")
+    elif job.get("auto_email") and not recipients:
+        jobs_update(job_id, email_status="skipped_no_recipients")
+
+    jobs_update(
+        job_id,
+        status="completed",
+        finished_at=dt.datetime.now().isoformat(timespec="seconds"),
+    )
+    return "completed"
+
+
+def run_calendar_bot_pipeline(bot_id: str, calendar_event: dict, job_id: str) -> None:
+    """Process a Calendar V2-scheduled bot after it finishes."""
+    try:
+        title = event_title(calendar_event)
+        folder = make_meeting_folder(title, _calendar_event_date(calendar_event), "")
+        relative = folder.resolve().relative_to(MEETINGS_ROOT.resolve())
+        jobs_update(job_id, folder=str(relative), status="joining")
+        final_status = _save_finished_bot_outputs(bot_id, folder, job_id)
+        webhook_log(
+            {
+                "event": "calendar.bot_pipeline",
+                "calendar_event_id": calendar_event.get("id"),
+                "bot_id": bot_id,
+                "result": final_status,
+                "folder": str(relative),
+            }
+        )
+    except Exception as exc:
+        jobs_update(
+            job_id,
+            status="failed",
+            error=f"{type(exc).__name__}: {exc}",
+            finished_at=dt.datetime.now().isoformat(timespec="seconds"),
+        )
+        webhook_log(
+            {
+                "event": "calendar.bot_pipeline",
+                "calendar_event_id": calendar_event.get("id"),
+                "bot_id": bot_id,
+                "result": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+
+
+def register_calendar_bot_job(
+    background_tasks: BackgroundTasks,
+    calendar_event: dict,
+    bot_ref: dict,
+) -> str | None:
+    bot_id = bot_ref.get("bot_id")
+    if not bot_id:
+        return None
+    existing = jobs_find(bot_id=bot_id)
+    if existing:
+        return existing.get("id")
+
+    job = {
+        "id": str(uuid.uuid4()),
+        "source": "calendar_v2",
+        "subject": event_title(calendar_event),
+        "meeting_url": bot_ref.get("meeting_url") or calendar_event.get("meeting_url"),
+        "parent_path": "",
+        "started_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "status": "scheduled",
+        "folder": None,
+        "bot_id": bot_id,
+        "finished_at": None,
+        "error": None,
+        "auto_email": True,
+        "recipients": event_attendees(calendar_event),
+        "email_status": None,
+        "email_sent_at": None,
+        "email_error": None,
+        "calendar_event_id": calendar_event.get("id"),
+        "calendar_event_start": event_start_time(calendar_event),
+    }
+    jobs_append(job)
+    background_tasks.add_task(run_calendar_bot_pipeline, bot_id, calendar_event, job["id"])
+    return job["id"]
 
 
 # ---------- path safety ----------
@@ -561,6 +719,75 @@ def _find_job_for_folder(folder_rel: str) -> dict:
         if j.get("folder") == folder_rel:
             return j
     return {}
+
+
+@app.post("/webhooks/recall/calendar")
+async def recall_calendar_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Handle Recall Calendar V2 webhooks by scheduling bots for changed events."""
+    payload = await request.json()
+    event_type = payload.get("event")
+    data = payload.get("data") or {}
+    calendar_id = data.get("calendar_id") or payload.get("calendar_id") or default_calendar_id()
+    print(f"[recall-calendar] webhook {event_type} calendar={calendar_id}")
+    webhook_log({"event": event_type, "calendar_id": calendar_id, "payload": payload})
+
+    if event_type == "calendar.update":
+        print(f"[recall-calendar] calendar.update calendar={calendar_id}")
+        webhook_log({"event": event_type, "calendar_id": calendar_id, "result": "calendar.update"})
+        return JSONResponse({"ok": True, "event": event_type, "calendar_id": calendar_id})
+
+    if event_type != "calendar.sync_events":
+        print(f"[recall-calendar] ignored event={event_type}")
+        webhook_log({"event": event_type, "calendar_id": calendar_id, "result": "ignored"})
+        return JSONResponse({"ok": True, "ignored": event_type})
+
+    updated_gte = None
+    if data.get("last_updated_ts"):
+        try:
+            updated_gte = dt.datetime.fromisoformat(data["last_updated_ts"].replace("Z", "+00:00"))
+        except ValueError:
+            updated_gte = None
+
+    events = list_calendar_events(calendar_id, updated_gte=updated_gte)
+    print(f"[recall-calendar] fetched {len(events)} updated event(s)")
+    webhook_log({"event": event_type, "calendar_id": calendar_id, "result": "fetched", "count": len(events)})
+    scheduled = []
+    skipped = []
+    failed = []
+    for event in events:
+        event_id = event.get("id")
+        title = event_title(event)
+        if event.get("is_deleted"):
+            skipped.append({"id": event_id, "title": title, "reason": "deleted"})
+            print(f"[recall-calendar] skip deleted {event_id} {title}")
+            continue
+        try:
+            scheduled_event = schedule_bot_for_event(event)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            failed.append({"id": event_id, "title": title, "error": error})
+            print(f"[recall-calendar] fail {event_id} {title}: {error}")
+            webhook_log({"event": event_type, "calendar_id": calendar_id, "result": "failed", "event_id": event_id, "title": title, "error": error})
+            continue
+        job_ids = []
+        for bot_ref in scheduled_bot_refs(scheduled_event):
+            job_id = register_calendar_bot_job(background_tasks, scheduled_event, bot_ref)
+            if job_id:
+                job_ids.append(job_id)
+        scheduled.append({"id": event_id, "title": title, "jobs": job_ids})
+        print(f"[recall-calendar] scheduled {event_id} {title} jobs={job_ids}")
+        webhook_log({"event": event_type, "calendar_id": calendar_id, "result": "scheduled", "event_id": event_id, "title": title, "jobs": job_ids})
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "event": event_type,
+            "calendar_id": calendar_id,
+            "scheduled": scheduled,
+            "skipped": skipped,
+            "failed": failed,
+        }
+    )
 
 
 @app.post("/meetings/{full_path:path}/qa")
