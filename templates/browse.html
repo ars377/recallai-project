@@ -6,16 +6,16 @@
   <a href="/browse">Home</a>
   {% for c in breadcrumbs %}
     <span class="sep">/</span>
-    <a href="/browse?path={{ c.path }}">{{ c.name }}</a>
+    <a href="/browse?path={{ c.path|query_value }}">{{ c.name }}</a>
   {% endfor %}
 </nav>
 
 <div class="page-header">
   <h1>{% if path %}{{ breadcrumbs[-1].name }}{% else %}Meetings{% endif %}</h1>
   <div class="page-actions">
-    <a class="btn" href="/{% if path %}?parent={{ path }}{% endif %}">Send notetaker here</a>
+    <a class="btn" href="/{% if path %}?parent={{ path|query_value }}{% endif %}">Send notetaker here</a>
     {% if path %}
-    <a class="btn" href="/zip?path={{ path }}">Download folder (zip)</a>
+    <a class="btn" href="/zip?path={{ path|query_value }}">Download folder (zip)</a>
     {% endif %}
   </div>
 </div>
@@ -53,7 +53,7 @@
       </div>
       {% if job.error %}<div class="job-meta error">{{ job.error }}</div>{% endif %}
       {% if job.folder %}
-        <div class="job-meta"><a href="/meetings/{{ job.folder }}">Open meeting</a></div>
+        <div class="job-meta"><a href="/meetings/{{ job.folder|path_url }}">Open meeting</a></div>
       {% endif %}
     </li>
     {% endfor %}
@@ -77,7 +77,7 @@
   <ul class="entry-list">
     {% for f in folders %}
     <li class="entry folder">
-      <a class="entry-main" href="/browse?path={{ f.path }}">
+      <a class="entry-main" href="/browse?path={{ f.path|query_value }}">
         <span class="entry-label">Folder</span>
         <span class="entry-name">{{ f.name }}</span>
         <span class="entry-meta">{{ f.count }} meeting{% if f.count != 1 %}s{% endif %}</span>
@@ -125,7 +125,7 @@
   <ul class="entry-list">
     {% for m in meetings %}
     <li class="entry meeting">
-      <a class="entry-main" href="/meetings/{{ m.path }}">
+      <a class="entry-main" href="/meetings/{{ m.path|path_url }}">
         <span class="entry-label">Meeting</span>
         <span class="entry-name">{{ m.name }}</span>
       </a>
@@ -160,7 +160,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  <p class="muted">No meetings here yet. <a href="/{% if path %}?parent={{ path }}{% endif %}">Send your first notetaker.</a></p>
+  <p class="muted">No meetings here yet. <a href="/{% if path %}?parent={{ path|query_value }}{% endif %}">Send your first notetaker.</a></p>
   {% endif %}
 </section>
 {% endblock %}

@@ -6,6 +6,7 @@ reuse the cached prefix instead of re-tokenizing the full transcript every time.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 from anthropic import Anthropic
@@ -48,11 +49,27 @@ def ask(transcript: str, question: str) -> str:
     return response.content[0].text
 
 
+def load_qa(folder: Path) -> list[dict]:
+    """Load Q&A history from qa.json. Returns empty list if file missing or corrupt."""
+    path = folder / "qa.json"
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 def append_qa(folder: Path, question: str, answer: str) -> Path:
-    """Append a Q&A pair to qa.md inside the meeting folder."""
-    path = folder / "qa.md"
-    timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-    entry = f"## {timestamp}\n\n**Q:** {question}\n\n**A:** {answer}\n\n---\n\n"
-    with path.open("a") as f:
-        f.write(entry)
+    """Append a Q&A pair to qa.json inside the meeting folder."""
+    path = folder / "qa.json"
+    history = load_qa(folder)
+    history.append(
+        {
+            "timestamp": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "question": question,
+            "answer": answer,
+        }
+    )
+    path.write_text(json.dumps(history, indent=2))
     return path

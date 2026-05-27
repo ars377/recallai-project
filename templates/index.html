@@ -24,6 +24,10 @@
     </select>
   </label>
   <p class="muted small">Need a new folder? <a href="/browse">Open Meetings</a> and use <strong>+ New folder</strong>.</p>
+  <label class="inline-check">
+    <input type="checkbox" name="auto_email" value="on" checked />
+    Auto-email attendees when done (uses Google Calendar attendees for this meeting URL; falls back silently if none found)
+  </label>
   <button type="submit">Send notetaker</button>
 </form>
 

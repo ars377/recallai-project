@@ -6,7 +6,7 @@
   <a href="/browse">Home</a>
   {% for c in breadcrumbs %}
     <span class="sep">/</span>
-    <a href="/browse?path={{ c.path }}">{{ c.name }}</a>
+    <a href="/browse?path={{ c.path|query_value }}">{{ c.name }}</a>
   {% endfor %}
   <span class="sep">/</span>
   <span>{{ name }}</span>
@@ -14,15 +14,58 @@
 
 <h1>{{ name }}</h1>
 
+{% if sent_count %}
+<aside class="flash flash-ok">Email sent to {{ sent_count }} recipient{% if sent_count != 1 %}s{% endif %}.</aside>
+{% endif %}
+{% if error_msg %}
+<aside class="flash flash-bad">{{ error_msg }}</aside>
+{% endif %}
+
+{% if auto_email_status == "sent" %}
+<aside class="flash flash-ok">Auto-emailed to {{ auto_email_recipients|join(", ") }}{% if auto_email_sent_at %} at {{ auto_email_sent_at }}{% endif %}.</aside>
+{% elif auto_email_status == "failed" %}
+<aside class="flash flash-bad">Auto-email failed: {{ auto_email_error }}. You can retry below.</aside>
+{% elif auto_email_status == "skipped_no_recipients" %}
+<aside class="flash flash-bad">Auto-email skipped — no calendar attendees were found for this meeting URL. Send manually below if needed.</aside>
+{% endif %}
+
 <div class="download-row">
-  <a class="btn" href="/zip?path={{ full_path }}">Download all (zip)</a>
+  <a class="btn" href="/zip?path={{ full_path|query_value }}">Download all (zip)</a>
   {% if transcript %}
-    <a class="btn" href="/meetings/{{ full_path }}/download/transcript.txt">Download transcript.txt</a>
+    <a class="btn" href="/meetings/{{ full_path|path_url }}/download/transcript.txt">Download transcript.txt</a>
   {% endif %}
   {% if summary %}
-    <a class="btn" href="/meetings/{{ full_path }}/download/summary.txt">Download summary.txt</a>
+    <a class="btn" href="/meetings/{{ full_path|path_url }}/download/summary.txt">Download summary.txt</a>
   {% endif %}
 </div>
+
+<details class="meeting-actions">
+  <summary class="btn">Email participants</summary>
+  <form action="/meetings/{{ full_path|path_url }}/email" method="post" class="stack">
+    <label>
+      <span>To (comma- or space-separated emails)</span>
+      <input type="text" name="to" placeholder="alice@example.com, bob@example.com" required />
+    </label>
+    <label>
+      <span>Subject</span>
+      <input type="text" name="subject" value="{{ default_email_subject }}" required />
+    </label>
+    <label>
+      <span>Message</span>
+      <textarea name="body" rows="10" required>{{ default_email_body }}</textarea>
+    </label>
+    <fieldset class="attach-set">
+      <legend>Attachments</legend>
+      {% if transcript %}
+      <label class="inline-check"><input type="checkbox" name="attach" value="transcript.txt" checked /> transcript.txt</label>
+      {% endif %}
+      {% if summary %}
+      <label class="inline-check"><input type="checkbox" name="attach" value="summary.txt" checked /> summary.txt</label>
+      {% endif %}
+    </fieldset>
+    <button type="submit">Send email</button>
+  </form>
+</details>
 
 <details class="meeting-actions">
   <summary class="btn">Rename</summary>
@@ -62,6 +105,38 @@
 {% endif %}
 
 {% if transcript %}
+<section class="qa-section">
+  <h2>Ask a question</h2>
+  <p class="muted small">Ask anything about this meeting — Claude answers based strictly on the transcript.</p>
+  <div class="qa-input-row">
+    <input type="text" id="qa-input" placeholder="What were the action items?" autocomplete="off" />
+    <button type="button" id="qa-mic" class="qa-mic-btn" title="Speak your question" aria-label="Speak your question">
+      <svg class="qa-mic-icon qa-mic-icon-idle" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+        <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+        <path d="M12 18v4"/>
+        <path d="M8 22h8"/>
+      </svg>
+      <svg class="qa-mic-icon qa-mic-icon-recording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5.14v13.72c0 .78.85 1.26 1.52.86l11.44-6.86a1 1 0 0 0 0-1.72L9.52 4.28A1 1 0 0 0 8 5.14Z"/>
+      </svg>
+    </button>
+    <button type="button" id="qa-submit">Ask</button>
+  </div>
+  <p id="qa-error" class="qa-error" style="display:none"></p>
+  <div id="qa-chat" class="qa-chat">
+    {% for item in qa_history | reverse %}
+    <div class="qa-entry">
+      <div class="qa-q">{{ item.question }}</div>
+      <div class="qa-a">{{ item.answer }}</div>
+      <div class="qa-ts">{{ item.timestamp }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if transcript %}
 <section>
   <h2>Transcript</h2>
   <pre class="transcript">{{ transcript }}</pre>
@@ -69,4 +144,123 @@
 {% else %}
 <p class="muted">No transcript yet.</p>
 {% endif %}
+
+<script>
+(function () {
+  const input   = document.getElementById('qa-input');
+  const submit  = document.getElementById('qa-submit');
+  const micBtn  = document.getElementById('qa-mic');
+  const chat    = document.getElementById('qa-chat');
+  const errEl   = document.getElementById('qa-error');
+  const QA_URL  = window.location.pathname + '/qa';
+  if (!input || !submit || !micBtn || !chat || !errEl) return;
+
+  // --- voice input ---
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    micBtn.style.display = 'none';
+  } else {
+    let rec = null;
+    let isRecording = false;
+    let finalTranscript = '';
+
+    function setRecording(next) {
+      isRecording = next;
+      micBtn.classList.toggle('recording', next);
+      micBtn.title = next ? 'Stop recording' : 'Speak your question';
+      micBtn.setAttribute('aria-label', next ? 'Stop recording' : 'Speak your question');
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (isRecording && rec) {
+        rec.stop();
+        setRecording(false);
+        return;
+      }
+
+      rec = new SR();
+      rec.lang = 'en-US';
+      rec.continuous = true;
+      rec.interimResults = true;
+      finalTranscript = input.value.trim();
+      rec.onstart  = () => {
+        setRecording(true);
+      };
+      rec.onend    = () => {
+        setRecording(false);
+        rec = null;
+      };
+      rec.onerror  = () => {
+        setRecording(false);
+        rec = null;
+      };
+      rec.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const text = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            finalTranscript = `${finalTranscript} ${text}`.trim();
+          } else {
+            interim += text;
+          }
+        }
+        input.value = `${finalTranscript} ${interim}`.trim();
+        input.focus();
+      };
+      rec.start();
+    });
+  }
+
+  // --- submit ---
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+  }
+
+  async function doAsk() {
+    const q = input.value.trim();
+    if (!q) return;
+    errEl.style.display = 'none';
+    submit.disabled = true;
+    submit.textContent = 'Thinking…';
+
+    const fd = new FormData();
+    fd.append('question', q);
+
+    try {
+      const res = await fetch(QA_URL, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || res.statusText);
+      }
+      const data = await res.json();
+
+      const now = new Date();
+      const ts  = now.getFullYear() + '-' +
+                  String(now.getMonth()+1).padStart(2,'0') + '-' +
+                  String(now.getDate()).padStart(2,'0') + ' ' +
+                  String(now.getHours()).padStart(2,'0') + ':' +
+                  String(now.getMinutes()).padStart(2,'0');
+
+      const entry = document.createElement('div');
+      entry.className = 'qa-entry qa-entry-new';
+      entry.innerHTML =
+        `<div class="qa-q">${escHtml(data.question)}</div>` +
+        `<div class="qa-a">${escHtml(data.answer)}</div>` +
+        `<div class="qa-ts">${ts}</div>`;
+      chat.prepend(entry);
+      input.value = '';
+    } catch (err) {
+      errEl.textContent = 'Error: ' + err.message;
+      errEl.style.display = 'block';
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Ask';
+    }
+  }
+
+  submit.addEventListener('click', doAsk);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAsk(); });
+})();
+</script>
 {% endblock %}

@@ -268,9 +268,159 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .meeting-actions { margin-top: 1rem; }
 .meeting-actions summary { list-style: none; }
 .meeting-actions summary::-webkit-details-marker { display: none; }
+.meeting-actions[open] > summary { margin-bottom: 0.75rem; }
+.meeting-actions[open] .stack { max-width: 100%; }
+
+textarea {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font-family: inherit;
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.attach-set {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem 0.6rem;
+  margin: 0;
+}
+.attach-set legend { font-size: 0.85rem; color: var(--muted); padding: 0 0.3rem; }
+.inline-check {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 1rem;
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+.flash {
+  padding: 0.65rem 0.9rem;
+  border-radius: 6px;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.92rem;
+}
+.flash-ok { background: var(--ok-bg); color: var(--ok-fg); border: 1px solid #86efac; }
+.flash-bad { background: var(--bad-bg); color: var(--bad-fg); border: 1px solid #fca5a5; }
 .btn.danger {
   background: var(--card);
   color: var(--bad-fg);
   border: 1px solid var(--bad-bg);
 }
 .btn.danger:hover { background: var(--bad-bg); }
+
+/* Q&A section */
+.qa-section { margin-top: 2rem; }
+
+.qa-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.75rem 0 0.5rem;
+}
+.qa-input-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.95rem;
+}
+
+.qa-mic-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.qa-mic-btn:hover {
+  background: #eff6ff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.12);
+}
+.qa-mic-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.qa-mic-btn:active { transform: translateY(1px); }
+.qa-mic-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.qa-mic-icon-recording { display: none; }
+.qa-mic-btn.recording .qa-mic-icon-idle { display: none; }
+.qa-mic-btn.recording .qa-mic-icon-recording { display: block; }
+.qa-mic-btn.recording {
+  background: #e11d48;
+  border-color: #e11d48;
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.16);
+  animation: toon-pulse 0.9s infinite;
+}
+@keyframes toon-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.16); }
+  50%      { box-shadow: 0 0 0 7px rgba(225, 29, 72, 0.08); }
+}
+
+.qa-error {
+  font-size: 0.875rem;
+  color: var(--bad-fg);
+  margin: 0.25rem 0 0.5rem;
+}
+
+.qa-chat {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.qa-entry {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+.qa-entry-new {
+  border-left-color: #7c3aed;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.qa-q {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+.qa-q::before { content: "Q  "; color: var(--accent); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-right: 0.3rem; }
+
+.qa-a {
+  font-size: 0.93rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.qa-a::before { content: "A  "; color: #7c3aed; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-right: 0.3rem; }
+
+.qa-ts {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.5rem;
+}

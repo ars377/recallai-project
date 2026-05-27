@@ -193,8 +193,16 @@ def make_meeting_folder(
         date = date.date()
 
     parent = resolve_under_meetings(parent_rel_path)
-    folder_name = f"{sanitize_subject(subject)}_{date.isoformat()}"
-    folder = parent / folder_name
+    base_name = f"{sanitize_subject(subject)}_{date.isoformat()}"
+    folder = parent / base_name
+    if folder.exists():
+        n = 2
+        while True:
+            candidate = parent / f"{base_name}-{n}"
+            if not candidate.exists():
+                folder = candidate
+                break
+            n += 1
     folder.mkdir(parents=True, exist_ok=True)
     (folder / MEETING_MARKER).touch(exist_ok=True)
     return folder
